@@ -1,0 +1,198 @@
+// Bibliotheken, die ich benötige
+#include <FastLED.h>
+#include <ArduinoJson.h>                  
+#include <math.h>                         
+#include <WiFiManager.h>  
+
+// Variablen: Brightness= 64, Data_Pin= D3, Number of LEDs= 8               
+#define BRIGHTNESS 64
+#define DATA_PIN D3 
+#define NUM_LEDS 8   
+
+
+// Array für Ansteuerung des LEDs
+CRGB leds[NUM_LEDS];
+
+//Variablen
+WiFiManager wifiManager;
+WiFiClient client;
+
+//Konstanten: City= Oldenburg, API-Key= "c360ff43073b3f88cc8b8693eb0b5e96"
+const String city = "Oldenburg";
+const String api_key = "c360ff43073b3f88cc8b8693eb0b5e96";    // Open-Weather-Map-API-Schluessel, kostenlos beziehbar ueber https://openweathermap.org/
+
+// Wetterdaten Werte auf 0 setzen
+int weatherID = 0;
+int weatherID_shortened = 0;
+String weatherforecast_shortened = " ";
+int temperature_Celsius_Int = 0;
+unsigned long lastcheck = 0;                      
+
+// Anfang des Quellcodes
+void setup() {
+  Serial.begin(115200);    
+
+ // Variablen für LED Streifen setzen
+  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+  FastLED.setMaxPowerInVoltsAndMilliamps(5, 400);
+  FastLED.clear();
+  FastLED.show();
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB( 253, 184, 19);
+  }
+  FastLED.setBrightness(BRIGHTNESS);
+  FastLED.show();
+
+  // WiFiManager Bibliothek mit deineWetterLampe verbinden
+  wifiManager.autoConnect("deineWetterLampe");
+
+   //LEDs ausschalten
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB( 0, 0, 0);
+  }
+  //Aktuelle Wetterdaten abrufen
+  FastLED.show();
+  delay(2000);
+  getCurrentWeatherConditions();
+}
+
+void loop() {
+
+  // Wetterdaten alle 30 Minuten abfragen
+  if (millis() - lastcheck >= 1800000) {         
+    getCurrentWeatherConditions();
+    lastcheck = millis();                         
+  }
+
+  // Wetter ID abrufen, sodass die Animationen ausgeführt werden können
+  if (weatherID == 800){
+    LED_effect_clearSky();
+  }
+  else {
+    switch (weatherID_shortened) {
+      case 8: LED_effect_cloudy(); break;
+    }
+  }
+
+}
+
+// Methode zum Abrufen der aktuelle Wetterdaten
+void getCurrentWeatherConditions() {
+  int WeatherData;
+  Serial.print("connecting to "); Serial.println("api.openweathermap.org");
+  // Prüfen, ob es sich verbunden hat
+  if (client.connect("api.openweathermap.org", 80)) {
+    //Wetterdaten abrufen mit GET
+    client.println("GET /data/2.5/weather?q=" + city + ",DE&units=metric&lang=de&APPID=" + api_key);
+    // Verbindung erfolgreich, Host benannt
+    client.println("Host: api.openweathermap.org");
+    client.println("Connection: close");
+    client.println();
+  } else {
+    //Verbindung unerfolgreich
+    Serial.println("connection failed");
+  }
+  // Größenangaben JSON (SIZE)
+  const size_t capacity = JSON_ARRAY_SIZE(2) + 2 * JSON_OBJECT_SIZE(1) + 2 * JSON_OBJECT_SIZE(2) + 2 * JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(5) + JSON_OBJECT_SIZE(6) + JSON_OBJECT_SIZE(14) + 360;
+  // JSON anlegen
+  DynamicJsonDocument doc(capacity);
+  deserializeJson(doc, client);
+  client.stop();
+
+  // WetterID aus JSON abrufen
+  weatherID = doc["weather"][0]["id"];
+  // Temperatur speichern
+  int temperature_Celsius = doc["main"]["temp"];
+  temperature_Celsius_Int = (int)temperature_Celsius;
+  // WetterID abkürzen
+  weatherID_shortened = weatherID / 100;
+  // abgekürzte WetterID prüfen
+  switch (weatherID_shortened) {                                    
+
+    // Bei case 8 wird eine Variable auf "Wolken" gesetzet
+    case 8: weatherforecast_shortened = "Wolken"; break;
+    default: weatherforecast_shortened = ""; break;
+  } if (weatherID == 800) weatherforecast_shortened = "klar";            
+}
+
+// Fade Funktion für die allmähliche Intensivierung der Helligkeit
+void fade(int led_position, uint16_t duration, uint16_t delay_val, uint16_t startR, uint16_t startG, uint16_t startB, uint16_t endR, uint16_t endG, uint16_t endB) {
+  int16_t redDiff = endR - startR;
+  int16_t greenDiff = endG - startG;
+  int16_t blueDiff = endB - startB;
+  int16_t steps = duration * 1000 / delay_val;
+  int16_t redValue, greenValue, blueValue;
+  for (int16_t i = 0 ; i < steps - 1 ; ++i) {
+    redValue = (int16_t)startR + (redDiff * i / steps);
+    greenValue = (int16_t)startG + (greenDiff * i / steps);
+    blueValue = (int16_t)startB + (blueDiff * i / steps);
+    leds[0] = CRGB(redValue, greenValue, blueValue);
+    FastLED.show();
+    delay(delay_val);
+  }
+  leds[led_position] = CRGB(endR, endG, endB);
+}
+
+// clearSky Effekt, für wenn der Himmel klar ist
+void LED_effect_clearSky() {
+  FastLED.setBrightness(255);
+  leds[0] = CRGB::Yellow;
+  FastLED.show();
+  delay(500);
+  leds[0] = CRGB::Black;
+  FastLED.show();
+  delay(500);
+}
+
+// cloudy Effekt, für wenn der Himmel bewölkt ist
+void LED_effect_cloudy() {
+Fast.LED.setBrightness(200);
+leds[0] = CRGB::White;
+FastLED.show();
+delay(500);
+leds[0] = CRGB::Blue;
+FastLED.show();
+dealys(500);
+}
+
+// thunderstorm Effekt, wenn es Gewittert
+void LED_effect_thunderstorm() {
+  FastLED.setBrightness(255);
+  leds[0] = CRGB::Blue;
+  FastLED.show();
+  delay(500);
+  leds[0] = CRGB::Yellow;
+  FastLED.show();
+  delay(500);
+  leds[0] = CRGB::Black;
+  FastLED.show();
+  delay(500);
+}
+
+//drizzle Effekt, wenn es Nieselregen gibt
+void LED_effect_drizzleRain() {
+  FastLED.setBrightness(200);
+  leds[0] = CRGB::Blue;
+  FastLED.show();
+  delay(500);
+  leds[0] = CRGB::Black;
+  FastLED.show();
+  delay(500);
+  leds[0] = CRGB::White;
+  FastLED.show();
+  delay(500);
+  }
+  
+  //sleet Effekt für Graupel (White und Black für Schnee/Regen)
+  void LED_effect_sleet() {
+  FastLED.setBrightness(255);
+  leds[0] = CRGB::White;
+  FastLED.show();
+  delay(500);
+  leds[0] = CRGB::Black;
+  FastLED.show();
+  delay(500);
+  leds[0] = CRGB::White;
+  FastLED.show();
+  delay(500);
+}
